@@ -1,12 +1,10 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { PlayerControls } from "./PlayerControls";
+import { QueuePanel } from "./QueuePanel";
+import { Song, usePlayer } from "./usePlayer";
 
-interface Song {
-  id: string;
-  title: string;
-  artists: string[];
+interface SearchSong extends Song {
   album: string | null;
-  durationSec: number | null;
-  thumbnail: string | null;
   explicit: boolean;
 }
 
@@ -26,14 +24,11 @@ function App() {
   const [serverReady, setServerReady] = useState(false);
   const [serverError, setServerError] = useState("");
   const [query, setQuery] = useState("");
-  const [songs, setSongs] = useState<Song[]>([]);
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [songs, setSongs] = useState<SearchSong[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
-  const [playbackError, setPlaybackError] = useState("");
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const player = usePlayer(config?.baseUrl ?? null, config?.token ?? null);
   const searchController = useRef<AbortController | null>(null);
-  const selectedSong = selectedIndex === null ? null : songs[selectedIndex] ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -73,19 +68,6 @@ function App() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!config || selectedSong === null) return;
-    const audio = audioRef.current;
-    if (!audio) return;
-    setPlaybackError("");
-    audio.load();
-    void audio.play().catch((error: unknown) => {
-      setPlaybackError(
-        error instanceof Error ? `Pemutaran gagal: ${error.message}` : "Pemutaran gagal dimulai.",
-      );
-    });
-  }, [config, selectedSong?.id]);
-
   const search = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -101,7 +83,6 @@ function App() {
       searchController.current = controller;
       setSearching(true);
       setSearchError("");
-      setPlaybackError("");
       try {
         const url = new URL("/search", config.baseUrl);
         url.searchParams.set("q", trimmed);
@@ -110,9 +91,8 @@ function App() {
         if (!response.ok) {
           throw new Error(`Pencarian gagal (HTTP ${response.status}).`);
         }
-        const results = (await response.json()) as Song[];
+        const results = (await response.json()) as SearchSong[];
         setSongs(results);
-        setSelectedIndex(null);
         if (results.length === 0) setSearchError("Tidak ada lagu yang ditemukan.");
       } catch (error) {
         if (controller.signal.aborted) return;
@@ -128,11 +108,6 @@ function App() {
     },
     [config, query, serverReady],
   );
-
-  function playAt(index: number) {
-    setSelectedIndex(index);
-    setPlaybackError("");
-  }
 
   return (
     <main className="app-shell">
@@ -169,7 +144,6 @@ function App() {
         </form>
 
         {searchError && <p className="message error" role="alert">{searchError}</p>}
-        {playbackError && <p className="message error" role="alert">{playbackError}</p>}
 
         <div className="results-heading">
           <h2>Hasil pencarian</h2>
@@ -183,75 +157,49 @@ function App() {
           </div>
         ) : (
           <div className="song-list" role="list">
-            {songs.map((song, index) => (
-              <button
-                className={`song-row ${index === selectedIndex ? "selected" : ""}`}
-                key={`${song.id}-${index}`}
-                onClick={() => playAt(index)}
-                role="listitem"
-                type="button"
-              >
-                <span className="artwork-wrap">
-                  {song.thumbnail ? (
-                    <img className="artwork" src={song.thumbnail} alt="" />
-                  ) : (
-                    <span className="artwork artwork-fallback">♫</span>
-                  )}
-                  <span className="play-overlay">{index === selectedIndex ? "Ⅱ" : "▶"}</span>
-                </span>
-                <span className="song-info">
-                  <span className="song-title">
-                    {song.title}
-                    {song.explicit && <span className="explicit-badge">E</span>}
-                  </span>
-                  <span className="song-artists">{song.artists.join(", ")}</span>
-                </span>
-                <span className="song-album">{song.album ?? ""}</span>
-                <span className="song-duration">{formatDuration(song.durationSec)}</span>
-              </button>
-            ))}
+            {songs.map((song, index) => {
+              const queued = player.queue.some((queuedSong) => queuedSong.id === song.id);
+              return (
+                <div className="search-result" role="listitem" key={`${song.id}-${index}`}>
+                  <button
+                    className={`song-row ${player.selectedSong?.id === song.id ? "selected" : ""}`}
+                    onClick={() => player.startFrom(songs, index)}
+                    type="button"
+                  >
+                    <span className="artwork-wrap">
+                      {song.thumbnail ? (
+                        <img className="artwork" src={song.thumbnail} alt="" />
+                      ) : (
+                        <span className="artwork artwork-fallback">♫</span>
+                      )}
+                      <span className="play-overlay">{player.selectedSong?.id === song.id ? "Ⅱ" : "▶"}</span>
+                    </span>
+                    <span className="song-info">
+                      <span className="song-title">
+                        {song.title}
+                        {song.explicit && <span className="explicit-badge">E</span>}
+                      </span>
+                      <span className="song-artists">{song.artists.join(", ")}</span>
+                    </span>
+                    <span className="song-album">{song.album ?? ""}</span>
+                    <span className="song-duration">{formatDuration(song.durationSec)}</span>
+                  </button>
+                  <div className="result-actions">
+                    <button type="button" disabled={queued} onClick={() => player.enqueue(song)}>
+                      {queued ? "Di antrean" : "Tambah ke antrean"}
+                    </button>
+                    <button type="button" onClick={() => player.playNext(song)}>Putar berikutnya</button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
+
+        <QueuePanel player={player} />
       </section>
 
-      <footer className="player">
-        <div className="now-playing">
-          {selectedSong?.thumbnail ? (
-            <img className="player-artwork" src={selectedSong.thumbnail} alt="" />
-          ) : (
-            <div className="player-artwork player-artwork-empty">♫</div>
-          )}
-          <div className="now-playing-info">
-            <strong>{selectedSong?.title ?? "Belum ada lagu diputar"}</strong>
-            <span>{selectedSong?.artists.join(", ") ?? "Pilih lagu dari hasil pencarian"}</span>
-          </div>
-        </div>
-        <div className="audio-controls">
-          <audio
-            ref={audioRef}
-            controls
-            preload="none"
-            src={
-              selectedSong && config
-                ? `${config.baseUrl}/stream/${encodeURIComponent(selectedSong.id)}?t=${encodeURIComponent(config.token)}`
-                : undefined
-            }
-            onEnded={() => {
-              if (selectedIndex !== null && selectedIndex + 1 < songs.length) {
-                setSelectedIndex(selectedIndex + 1);
-              } else {
-                setSelectedIndex(null);
-              }
-            }}
-            onError={() => {
-              if (selectedSong) {
-                setPlaybackError(`Tidak dapat memutar “${selectedSong.title}”. Periksa koneksi server dan coba lagi.`);
-              }
-            }}
-          />
-        </div>
-        <div className="player-spacer" />
-      </footer>
+      <PlayerControls player={player} />
     </main>
   );
 }
