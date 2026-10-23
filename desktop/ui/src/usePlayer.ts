@@ -4,6 +4,7 @@ export interface Song {
   id: string;
   title: string;
   artists: string[];
+  album?: string | null;
   thumbnail: string | null;
   durationSec: number | null;
 }

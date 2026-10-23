@@ -204,7 +204,15 @@ h1 { font: 800 clamp(30px, 4vw, 42px) "Manrope", sans-serif; letter-spacing: -1.
 .volume-control input { max-width: 100px; }
 .volume-control audio { display: none; }
 
-.queue-section { margin: 35px 0 22px; }
+.library-panels {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(260px, 0.9fr);
+  align-items: start;
+  gap: 28px;
+  margin: 35px 0 22px;
+}
+.queue-section, .lyrics-section { min-width: 0; }
+.queue-section { margin: 0; }
 .queue-heading { margin-top: 0; }
 .queue-empty { padding: 20px 4px 26px; color: var(--muted); font-size: 12px; }
 .queue-list { display: grid; gap: 4px; padding: 0; margin: 0; list-style: none; }
@@ -224,6 +232,31 @@ h1 { font: 800 clamp(30px, 4vw, 42px) "Manrope", sans-serif; letter-spacing: -1.
 .queue-artwork-empty { display: grid; place-items: center; background: #252b27; color: var(--green); font-size: 19px; }
 .queue-actions { display: flex; gap: 4px; }
 .queue-actions button { min-width: 32px; padding: 0 7px; font-size: 14px; }
+.lyrics-heading { margin-top: 0; }
+.lyrics-heading > span { max-width: 65%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lyrics-content { min-height: 140px; border: 1px solid #262d28; border-radius: 12px; background: #151916; }
+.lyrics-message { padding: 18px; margin: 0; color: var(--muted); font-size: 12px; }
+.lyrics-scroll { position: relative; max-height: 460px; overflow-y: auto; padding: 16px 13px; scrollbar-color: #39463d transparent; }
+.synced-lyrics { display: grid; gap: 7px; }
+.lyric-line {
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #aab2ac;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
+  white-space: pre-wrap;
+  cursor: pointer;
+}
+.lyric-line:hover { background: #1e2721; color: #e5ece7; }
+.lyric-line.active { color: var(--green); font-weight: 700; }
+.lyric-line.lyric-break { min-height: 12px; padding-block: 0; }
+.plain-lyrics { color: #c6cec8; font-size: 13px; line-height: 1.8; white-space: pre-wrap; }
+.plain-lyrics-label { margin: 0 0 12px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; }
 
 @media (max-width: 820px) {
   .content { width: 92%; margin-top: 38px; }
@@ -238,4 +271,5 @@ h1 { font: 800 clamp(30px, 4vw, 42px) "Manrope", sans-serif; letter-spacing: -1.
   .volume-control { grid-area: volume; }
   .queue-row { grid-template-columns: 20px 36px minmax(100px, 1fr) 42px auto; gap: 7px; padding-inline: 6px; }
   .queue-artwork { width: 36px; height: 36px; }
+  .library-panels { grid-template-columns: minmax(0, 1fr); gap: 12px; }
 }

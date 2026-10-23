@@ -23,6 +23,8 @@ npm run dev
 
 Main process menutup pohon proses server dengan `taskkill /T /F` saat aplikasi ditutup. UI development berjalan pada `http://localhost:5173`; server hanya bind ke `127.0.0.1` dan mengizinkan CORS dari origin development tersebut.
 
+Lirik untuk lagu aktif diminta dari endpoint lokal server. Panel menampilkan lirik tersinkron (baris aktif dapat diklik untuk seek) atau lirik teks statis berlabel "Lirik tidak tersinkron" jika sinkronisasi tidak tersedia. Pencarian lirik memerlukan akses internet ke LRCLIB.
+
 Mode packaged (`file://`) belum disiapkan. **TODO:** tentukan kebijakan CORS yang sesuai untuk renderer packaged sebelum membuat distribusi desktop.
 
 ## Build UI

@@ -1,0 +1,5 @@
+java.net.http
+jdk.crypto.ec
+java.naming
+jdk.unsupported
+java.sql

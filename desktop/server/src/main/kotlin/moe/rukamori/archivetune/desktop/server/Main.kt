@@ -7,6 +7,7 @@ import io.ktor.http.HttpMethod
 import io.ktor.http.HttpHeaders
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCallPipeline
+import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
@@ -33,12 +34,6 @@ fun main() {
         // This unofficial fork intentionally disables the network gatekeeper.
         NetworkGatekeeperControl.allowConnections()
         YouTube.locale = YouTubeLocale(gl = "US", hl = "en")
-        YouTube.visitorData()
-            .onSuccess { visitorData -> YouTube.visitorData = visitorData }
-            .onFailure { failure ->
-                if (failure is CancellationException) throw failure
-                DesktopServerLog.logger.log(Level.SEVERE, "Initial YouTube visitorData fetch failed", failure)
-            }
         DesktopServerLog.logger.info("YouTube startup locale=${YouTube.locale}")
 
         val port =
@@ -51,18 +46,27 @@ fun main() {
                 ?.takeIf { it.isNotBlank() }
                 ?: error("ARCHIVETUNE_TOKEN must be set to a non-empty value")
 
+        val visitorDataCoordinator = VisitorDataCoordinator()
+        visitorDataCoordinator.start()
         embeddedServer(
             factory = CIO,
             host = "127.0.0.1",
             port = port,
         ) {
-            module(token)
+            module(token, visitorDataCoordinator)
         }.start(wait = true)
     }
 }
 
-private fun Application.module(token: String) {
+private fun Application.module(
+    token: String,
+    visitorDataCoordinator: VisitorDataCoordinator,
+) {
     val streamProxy = StreamProxy(StreamResolver())
+    val lyricsService = LyricsService()
+    monitor.subscribe(ApplicationStopped) {
+        visitorDataCoordinator.stop()
+    }
 
     install(ContentNegotiation) {
         json(Json { explicitNulls = true })
@@ -106,6 +110,7 @@ private fun Application.module(token: String) {
                 )
                 return@get
             }
+            visitorDataCoordinator.ensureAvailable("search request")
 
             val searchResult =
                 YouTube.search(
@@ -135,8 +140,64 @@ private fun Application.module(token: String) {
                 call.respond(HttpStatusCode.BadRequest, ErrorResponse("videoId must match ^[A-Za-z0-9_-]{11}$"))
                 return@get
             }
+            var refreshUsed = !visitorDataCoordinator.isInitialized
+            val visitorDataAvailable = visitorDataCoordinator.ensureAvailable("stream request for $videoId")
             streamProxy.proxy(call, videoId) {
-                refreshVisitorData("stream request for $videoId")
+                if (!refreshUsed) {
+                    refreshUsed = true
+                    visitorDataCoordinator.refresh("stream upstream failure for $videoId")
+                } else {
+                    visitorDataAvailable
+                }
+            }
+        }
+
+        get("/lyrics") {
+            val title = call.request.queryParameters["title"]?.trim()
+            val artist = call.request.queryParameters["artist"]?.trim()
+            val albumParameter = call.request.queryParameters["album"]
+            val album = albumParameter?.trim()?.takeIf(String::isNotEmpty)
+            val rawDuration = call.request.queryParameters["durationSec"]
+            val durationSec =
+                rawDuration?.toIntOrNull()?.also { duration ->
+                    if (duration !in 1..86_400) {
+                        call.respond(HttpStatusCode.BadRequest, ErrorResponse("durationSec must be between 1 and 86400"))
+                        return@get
+                    }
+                }
+
+            if (rawDuration != null && durationSec == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("durationSec must be an integer"))
+                return@get
+            }
+            if (title == null || !title.isValidLyricsParameter(MAX_LYRICS_PARAMETER_LENGTH)) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("title is required and must contain 1 to 200 valid characters"))
+                return@get
+            }
+            if (artist == null || !artist.isValidLyricsParameter(MAX_LYRICS_PARAMETER_LENGTH)) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("artist is required and must contain 1 to 200 valid characters"))
+                return@get
+            }
+            if (albumParameter != null && (album == null || !album.isValidLyricsParameter(MAX_LYRICS_PARAMETER_LENGTH))) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("album must contain 1 to 200 valid characters"))
+                return@get
+            }
+
+            try {
+                val lyrics = lyricsService.getLyrics(title, artist, album, durationSec)
+                if (lyrics == null) {
+                    call.respond(HttpStatusCode.NotFound, ErrorResponse("Lyrics not found"))
+                } else {
+                    call.respond(lyrics)
+                }
+            } catch (failure: CancellationException) {
+                throw failure
+            } catch (failure: Exception) {
+                DesktopServerLog.logger.log(Level.SEVERE, "LRCLIB lookup failed for '$title' by '$artist'", failure)
+                call.respond(
+                    HttpStatusCode.BadGateway,
+                    ErrorResponse("LRCLIB lookup failed: ${failure.message ?: "upstream request failed"}"),
+                )
             }
         }
     }
@@ -164,6 +225,10 @@ private data class SongResponse(
 )
 
 private val VIDEO_ID_PATTERN = Regex("^[A-Za-z0-9_-]{11}$")
+private const val MAX_LYRICS_PARAMETER_LENGTH = 200
+
+private fun String.isValidLyricsParameter(maxLength: Int): Boolean =
+    isNotBlank() && length <= maxLength && none(Char::isISOControl)
 
 internal object DesktopServerLog {
     val logger: java.util.logging.Logger = java.util.logging.Logger.getLogger("ArchiveTuneDesktopServer")
@@ -179,16 +244,6 @@ private suspend fun Throwable.fullResponseBody(): String {
         "${responseException.message}; failed to read response body: ${readFailure.message}"
     }
 }
-
-private suspend fun refreshVisitorData(reason: String): Boolean =
-    YouTube.visitorData()
-        .onSuccess { visitorData ->
-            YouTube.visitorData = visitorData
-            DesktopServerLog.logger.info("Refreshed YouTube visitorData for $reason")
-        }.onFailure { failure ->
-            if (failure is CancellationException) throw failure
-            DesktopServerLog.logger.log(Level.SEVERE, "Failed to refresh YouTube visitorData for $reason", failure)
-        }.isSuccess
 
 private fun SongItem.toResponse() =
     SongResponse(

@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { PlayerControls } from "./PlayerControls";
 import { QueuePanel } from "./QueuePanel";
+import { LyricsPanel } from "./LyricsPanel";
 import { Song, usePlayer } from "./usePlayer";
 
 interface SearchSong extends Song {
@@ -196,7 +197,15 @@ function App() {
           </div>
         )}
 
-        <QueuePanel player={player} />
+        <div className="library-panels">
+          <QueuePanel player={player} />
+          <LyricsPanel
+            config={config}
+            song={player.selectedSong}
+            currentTime={player.currentTime}
+            onSeek={player.seek}
+          />
+        </div>
       </section>
 
       <PlayerControls player={player} />
